@@ -1,0 +1,47 @@
+import matplotlib.pyplot as plt
+import math
+
+def brain_curve(iterations, axiom, rules):
+    for _ in range(iterations):
+        axiom = ''.join([rules.get(c, c) for c in axiom])
+    return axiom
+
+def draw_brain_curve(axiom, angle, length):
+    directions = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+    direction_idx = 0
+    x, y = 0, 0
+    points = [(x, y)]
+
+    for c in axiom:
+        if c == 'F':
+            dx, dy = directions[direction_idx]
+            x += dx * length
+            y += dy * length
+            points.append((x, y))
+        elif c == '+':
+            direction_idx = (direction_idx + 1) % 4
+        elif c == '-':
+            direction_idx = (direction_idx - 1) % 4
+
+    return points
+
+def main():
+    iterations = 5 
+    axiom = "X"
+    rules = {
+        'X': '-YF+XFX+FY-',
+        'Y': '+XF-YFY-FX+'
+    }
+    angle = math.pi / 2  
+    length = 1  
+
+    axiom = brain_curve(iterations, axiom, rules)
+    points = draw_brain_curve(axiom, angle, length)
+
+    x_coords, y_coords = zip(*points)
+    plt.figure(figsize=(10, 10))
+    plt.plot(x_coords, y_coords, 'k-')
+    plt.axis('equal')
+    plt.show()
+
+main()
