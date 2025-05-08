@@ -1,0 +1,187 @@
+
+import pygame
+from pygame.locals import DOUBLEBUF, OPENGL  # Импортируем DOUBLEBUF и OPENGL
+from OpenGL.GL import *
+from OpenGL.GLU import *
+import numpy as np
+import math
+
+# Функция для создания каркасного цилиндра
+def create_wireframe_cylinder(radius, height, num_segments):
+    """Создает вершины и линии для каркасного цилиндра."""
+    vertices = []
+    edges = []
+
+    # Создаем вершины верхней и нижней окружностей
+    for i in range(num_segments):
+        angle = 2 * np.pi * i / num_segments
+        x = radius * np.sin(angle)
+        y = radius * np.cos(angle)
+
+        # Верхняя и нижняя точки цилиндра
+        vertices.append([x, y, height / 2])  # Верхняя окружность
+        vertices.append([x, y, -height / 2])  # Нижняя окружность
+
+    # Соединяем точки верхней окружности
+    for i in range(num_segments):
+        next_i = (i + 1) % num_segments
+        edges.append((i * 2, next_i * 2))  # Верхняя окружность
+        edges.append((i * 2 + 1, next_i * 2 + 1))  # Нижняя окружность
+
+        # Соединяем верхнюю и нижнюю окружности
+        edges.append((i * 2, i * 2 + 1))
+
+    return np.array(vertices, dtype='float32'), np.array(edges, dtype='int32')
+
+
+def draw_wireframe_cylinder(vertices, edges):
+    """Рисует каркас цилиндра на основе его вершин и рёбер."""
+    glBegin(GL_LINES)
+    for edge in edges:
+        for vertex_index in edge:
+            glVertex3fv(vertices[vertex_index])
+    glEnd()
+
+# Функция для перспективной проекции
+def setup_perspective_projection(fov, aspect_ratio, near, far):
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    gluPerspective(fov, aspect_ratio, near, far)
+    glMatrixMode(GL_MODELVIEW)
+
+# Функция для создания матрицы перспективной проекции
+def perspective_projection_matrix(fovy, aspect, near, far):
+    """Создает матрицу перспективной проекции вручную."""
+    f = 1.0 / math.tan(math.radians(fovy) / 2)
+    return np.array([
+        [f / aspect, 0, 0, 0],
+        [0, f, 0, 0],
+        [0, 0, (far + near) / (far - near), (2 * far * near) / (far - near)],
+        [0, 0, -1, 0]
+    ], dtype='float32')
+
+# Функция для вращения (4x4 матрица)
+def rotate_matrix(angle_x, angle_y, angle_z):
+    # Матрица вращения вокруг оси X
+    rotation_x = np.array([[1, 0, 0, 0],
+                           [0, math.cos(angle_x), -math.sin(angle_x), 0],
+                           [0, math.sin(angle_x), math.cos(angle_x), 0],
+                           [0, 0, 0, 1]])
+
+    # Матрица вращения вокруг оси Y
+    rotation_y = np.array([[math.cos(angle_y), 0, math.sin(angle_y), 0],
+                           [0, 1, 0, 0],
+                           [-math.sin(angle_y), 0, math.cos(angle_y), 0],
+                           [0, 0, 0, 1]])
+
+    # Матрица вращения вокруг оси Z
+    rotation_z = np.array([[math.cos(angle_z), -math.sin(angle_z), 0, 0],
+                           [math.sin(angle_z), math.cos(angle_z), 0, 0],
+                           [0, 0, 1, 0],
+                           [0, 0, 0, 1]])
+
+    # Комбинируем все три вращения
+    rotation_matrix = np.dot(rotation_x, np.dot(rotation_y, rotation_z))
+    return rotation_matrix
+
+def transformation_matrix(zk, zn1, z):
+    """Создает матрицу преобразования 4x4 (урезанная версия)"""
+    return np.array([
+        [(zk - zn1)/(zk-z), 0, 0, 0],
+        [ 0, (zk - zn1)/(zk-z), 0, 0],
+        [0, 0, 1, -zn1],
+        [0, 0, 0, 1]
+    ], dtype='float32')
+# Функция для масштабирования (4x4 матрица)
+def scale_matrix(scale_x, scale_y, scale_z):
+    scale_matrix = np.array([[scale_x, 0, 0, 0],
+                             [0, scale_y, 0, 0],
+                             [0, 0, scale_z, 0],
+                             [0, 0, 0, 1]])
+    return scale_matrix
+
+# Функция для перемещения (4x4 матрица)
+def translate_matrix(translate_x, translate_y, translate_z):
+    translation_matrix = np.array([[1, 0, 0, translate_x],
+                                   [0, 1, 0, translate_y],
+                                   [0, 0, 1, translate_z],
+                                   [0, 0, 0, 1]])
+    return translation_matrix
+
+# Основная функция для инициализации окна и отображения
+def main():
+    pygame.init()
+
+    # Устанавливаем окно Pygame
+    display = (800, 600)
+    pygame.display.set_mode(display, DOUBLEBUF | OPENGL)
+
+    gluPerspective(45, (display[0] / display[1]), 0.1, 50.0)
+    glTranslatef(0.0, 0.0, -5)
+
+    # Углы вращения
+    angle_x, angle_y, angle_z = 0, 0, 0
+    scale_factor = 1.5  # Начальный коэффициент масштабирования
+    translate_x, translate_y, translate_z = 0, 0, 0  # Начальные смещения
+
+    # Основной цикл программы
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+
+            # Обработка клавиш для аффинных преобразований
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT:
+                    angle_y -= 5  # Вращаем по оси Y
+                elif event.key == pygame.K_RIGHT:
+                    angle_y += 5  # Вращаем по оси Y
+                elif event.key == pygame.K_UP:
+                    angle_x -= 5  # Вращаем по оси X
+                elif event.key == pygame.K_DOWN:
+                    angle_x += 5  # Вращаем по оси X
+                elif event.key == pygame.K_PLUS or event.key == pygame.K_KP_PLUS:
+                    scale_factor *= 1.1  # Увеличиваем масштаб
+                elif event.key == pygame.K_MINUS or event.key == pygame.K_KP_MINUS:
+                    scale_factor /= 1.1  # Уменьшаем масштаб
+                elif event.key == pygame.K_w:
+                    translate_y += 0.1  # Перемещаем вдоль оси Y
+                elif event.key == pygame.K_s:
+                    translate_y -= 0.1  # Перемещаем вдоль оси Y
+                elif event.key == pygame.K_a:
+                    translate_x -= 0.1  # Перемещаем вдоль оси X
+                elif event.key == pygame.K_d:
+                    translate_x += 0.1  # Перемещаем вдоль оси X
+                elif event.key == pygame.K_q:
+                    translate_z -= 0.1  # Перемещаем вдоль оси Z
+                elif event.key == pygame.K_e:
+                    translate_z += 0.1  # Перемещаем вдоль оси Z
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+        # Матрицы для аффинных преобразований
+        rotation_matrix = rotate_matrix(math.radians(angle_x), math.radians(angle_y), math.radians(angle_z))
+        scale_matrix_ = scale_matrix(scale_factor, scale_factor, scale_factor)
+        transl_matrix_ = translate_matrix(translate_x, translate_y, translate_z)
+
+        glPushMatrix()  
+
+
+        trans_matrix = transformation_matrix(zk=1.0, zn1=0.5, z=0.0)
+        glMultMatrixf(transl_matrix_.flatten())  # Перемещение
+        glMultMatrixf(rotation_matrix.flatten())  # Вращение
+        glMultMatrixf(scale_matrix_.flatten())  # Масштабирование
+
+        # Отображаем цилиндр
+        vertices, edges = create_wireframe_cylinder(1, 2, 30)
+        draw_wireframe_cylinder(vertices, edges)
+
+        # Восстанавливаем матрицу
+        glPopMatrix()
+
+        pygame.display.flip()
+        pygame.time.wait(10)
+
+if __name__ == "__main__":
+    main()
