@@ -1,0 +1,158 @@
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image, ImageTk, ImageOps
+import os
+import numpy as np
+
+class ImageProcessor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Обработка изображений")
+        
+        self.image_path = ""
+        self.threshold = tk.IntVar(value=128)
+        self.image_references = [] 
+        
+        self.create_widgets()
+        
+    def create_widgets(self):
+        control_frame = tk.Frame(self.root)
+        control_frame.pack(pady=10)
+        
+        tk.Button(control_frame, text="Загрузить изображение", command=self.load_image).grid(row=0, column=0, padx=5)
+        
+        tk.Label(control_frame, text="Пороговое значение:").grid(row=0, column=1, padx=5)
+        tk.Entry(control_frame, textvariable=self.threshold, width=5).grid(row=0, column=2, padx=5)
+        
+        tk.Button(control_frame, text="Обработать", command=self.process_image).grid(row=0, column=3, padx=5)
+        
+        self.image_frame = tk.Frame(self.root)
+        self.image_frame.pack(pady=10)
+        
+    def display_images(self, original, gray, threshold, sobel):
+        for widget in self.image_frame.winfo_children():
+            widget.destroy()
+            
+        self.image_references = []
+
+        titles = [
+            "Исходное изображение",
+            "Оттенки серого",
+            f"Пороговая обработка (T={self.threshold.get()})",
+            "Фильтр Собеля"
+        ]
+
+        images = [original, gray, threshold, sobel]
+        display_size = (350, 350)  
+
+        for i, (title, img) in enumerate(zip(titles, images)):
+            row = i // 2  
+            col = i % 2   
+
+            img_resized = img.resize(display_size)
+            img_tk = ImageTk.PhotoImage(img_resized)
+            
+            self.image_references.append(img_tk)
+
+            tk.Label(self.image_frame, text=title).grid(row=row*2, column=col, padx=5, pady=5)
+            label = tk.Label(self.image_frame, image=img_tk)
+            label.grid(row=row*2 + 1, column=col, padx=5, pady=5)
+            
+    def load_image(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp")]
+        )
+        if file_path:
+            self.image_path = file_path
+            self.show_message(f"Загружено: {os.path.basename(file_path)}")
+    
+    def process_image(self):
+        if not self.image_path:
+            self.show_message("Сначала загрузите изображение!")
+            return
+        
+        try:
+            original_image = Image.open(self.image_path)
+            gray_image = self.to_grayscale(original_image)
+            threshold_image = self.partial_threshold(gray_image.copy(), self.threshold.get())
+            sobel_image = self.apply_sobel_filter(gray_image.copy())
+            self.display_images(original_image, gray_image, threshold_image, sobel_image)
+            
+        except Exception as e:
+            self.show_message(f"Ошибка: {str(e)}")
+    
+    def to_grayscale(self, image):
+        image = image.convert("RGB")
+        width, height = image.size
+        gray_image = Image.new("L", (width, height))
+
+        for x in range(width):
+            for y in range(height):
+                r, g, b = image.getpixel((x, y))  
+                gray_value = int(0.299 * r + 0.587 * g + 0.114 * b)  
+                gray_image.putpixel((x, y), gray_value)  
+
+        return gray_image
+    
+    def partial_threshold(self, image, threshold, background=255):
+        image = image.copy()
+        pixels = image.load()
+        
+        for i in range(image.width):
+            for j in range(image.height):
+                brightness = pixels[i, j]
+                if isinstance(brightness, tuple):  
+                    brightness = brightness[0]
+                
+                if brightness > threshold:
+                    pixels[i, j] = background
+                else:
+                    pixels[i, j] = brightness
+        
+        return image
+    
+    def apply_sobel_filter(self, image):
+        kernel = np.array([
+            [-1, 0, 1],
+            [-2, 0, 2],
+            [-1, 0, 1]
+        ], dtype=np.float32)
+        
+        A = 0
+        B = 1/4
+        
+        img_array = np.array(image, dtype=np.float32)
+        if len(img_array.shape) == 3:  
+            img_array = img_array[:, :, 0]  
+        
+        padded = np.pad(img_array, pad_width=1, mode='edge')  
+        
+        result = np.zeros_like(img_array, dtype=np.float32)
+        
+        for i in range(1, padded.shape[0] - 1):
+            for j in range(1, padded.shape[1] - 1):
+                region = padded[i-1:i+2, j-1:j+2]
+                sum_val = np.sum(region * kernel)
+                result[i-1, j-1] = A + B * sum_val
+        
+        result = np.abs(result)
+        
+        if np.max(result) > 0: 
+            result = (result / np.max(result)) * 255
+        
+        result = result.astype(np.uint8)
+        
+        return Image.fromarray(result)
+
+    def show_message(self, message):
+        message_box = tk.Toplevel(self.root)
+        message_box.title("Сообщение")
+        tk.Label(message_box, text=message).pack(padx=20, pady=20)
+        tk.Button(message_box, text="Закрыть", command=message_box.destroy).pack(pady=5)
+
+# Запуск приложения
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ImageProcessor(root)
+    root.mainloop()
+
