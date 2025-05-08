@@ -1,0 +1,349 @@
+from tkinter import ttk, colorchooser
+import tkinter as tk
+from typing import Optional
+import sys
+sys.setrecursionlimit(10_000)
+
+CANVAS_WIDTH = 800
+CANVAS_HEIGHT = 600
+
+class Paint:
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        root.title("Paint")
+
+        self.mode = tk.StringVar(value="line_bresenham")
+        self.current_color = "#000000"
+        self.bezier_points = 3
+
+        self.image = tk.PhotoImage(width=CANVAS_WIDTH, height=CANVAS_HEIGHT)
+        white_line = "{" + " ".join(["#ffffff"] * CANVAS_WIDTH) + "}"
+        for y in range(CANVAS_HEIGHT):
+            self.image.put(white_line, to=(0, y))
+
+        self.canvas = tk.Canvas(root, width=CANVAS_WIDTH, height=CANVAS_HEIGHT)
+        self.canvas.pack()
+
+        toolbar = ttk.Frame(root)
+        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.canvas_image = self.canvas.create_image(0, 0, image=self.image, anchor=tk.NW)
+
+        self.click_points = []
+
+        self.canvas.bind("<Button-1>", self.on_click)
+
+        ttk.Label(toolbar, text="Рисование линий:").pack(side=tk.LEFT, padx=5)
+        for text, mode in [("Брезенхам", "line_bresenham"),
+                           ("Безье", "line_bezier")]:
+            ttk.Radiobutton(toolbar, text=text, variable=self.mode, value=mode).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(toolbar, text="Рисование окружности:").pack(side=tk.LEFT, padx=15)
+        ttk.Radiobutton(toolbar, text="Брезенхам", variable=self.mode, value="circle_bresenham").pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(toolbar, text="Заливка:").pack(side=tk.LEFT, padx=15)
+        for text, mode in [("Рекурсивная", "fill_Rec"),
+                           ("Kороед", "fill_koroyed"),
+                           ("С затравкой", "fill_seed")]:
+            ttk.Radiobutton(toolbar, text=text, variable=self.mode, value=mode).pack(side=tk.LEFT, padx=5)
+
+        btn_color = ttk.Button(toolbar, text="Выберите цвет", command=self.choose_color)
+        btn_color.pack(side=tk.LEFT, padx=5)
+
+        self.bezier_label = ttk.Label(toolbar, text="Количество точек Безье: 3")
+        self.bezier_label.pack(side=tk.LEFT, padx=5)
+
+        self.bezier_button = ttk.Button(toolbar, text="Изменить", command=self.change_bezier_points)
+        self.bezier_button.pack(side=tk.LEFT, padx=5)
+
+    def choose_color(self) -> None:
+        color = colorchooser.askcolor()[1]
+        if color:
+            self.current_color = color
+
+    def on_click(self, event) -> None:
+        current_mode = self.mode.get()
+        if current_mode.startswith("line"):
+            if current_mode == "line_bezier":
+                self.click_points.append((event.x, event.y))
+                if len(self.click_points) == self.bezier_points:
+                    self.Bezier(self.click_points, self.current_color)
+                    self.click_points = []
+            elif current_mode == "line_bresenham":
+                self.click_points = [(event.x, event.y)]
+                self.canvas.bind("<ButtonRelease-1>", self.on_release_line)
+        elif current_mode == "circle_bresenham":
+            self.click_points = [(event.x, event.y)]
+            self.canvas.bind("<ButtonRelease-1>", self.on_release_circle)
+        elif current_mode.startswith("fill"):
+            if current_mode == "fill_Rec":
+                self.fill_recursive(event.x, event.y, self.current_color)
+            elif current_mode == "fill_koroyed":
+                pattern = [
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1]]
+                self.fill_koroyed(event.x, event.y, self.current_color, pattern)
+            elif current_mode == "fill_seed":
+                self.fill_seed(event.x, event.y, self.current_color)
+
+    def on_release_line(self, event) -> None:
+        start = self.click_points[0]
+        end = (event.x, event.y)
+
+        self.draw_line_Bres(start[0], start[1], end[0], end[1], self.current_color)
+
+        self.canvas.unbind("<ButtonRelease-1>")
+        self.click_points = []
+
+    def on_release_circle(self, event) -> None:
+        center = self.click_points[0]
+        radius = ((event.x - center[0]) ** 2 + (event.y - center[1]) ** 2) ** 0.5
+
+        self.draw_circle_Bres(center[0], center[1], int(radius), self.current_color)
+
+        self.canvas.unbind("<ButtonRelease-1>")
+        self.click_points = []
+
+    def draw_line_Bres(self, x0: int, y0: int, x1: int, y1: int, color: str, update: bool = True):
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+
+        while True:
+            self.set_pixel(x0, y0, color)
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
+
+        if update: self.canvas.update()
+
+    def draw_circle_Bres(self, x0: int, y0: int, radius: int, color: str):
+        x = 0
+        y = radius
+        d = 3 - 2 * radius
+
+        while x <= y:
+            self.set_pixel(x0 + x, y0 + y, color)
+            self.set_pixel(x0 + y, y0 + x, color)
+            self.set_pixel(x0 + y, y0 - x, color)
+            self.set_pixel(x0 + x, y0 - y, color)
+            self.set_pixel(x0 - x, y0 - y, color)
+            self.set_pixel(x0 - y, y0 - x, color)
+            self.set_pixel(x0 - y, y0 + x, color)
+            self.set_pixel(x0 - x, y0 + y, color)
+
+            if d < 0:
+                d += 4 * x + 6
+            else:
+                d += 4 * (x - y) + 10
+                y -= 1
+            x += 1
+
+        self.canvas.update()
+
+    def Bezier(self, points: list[tuple[int, int]], color: str):
+        steps = 100
+        prev_point = None
+
+        for i in range(steps + 1):
+            t = i / steps
+            x, y = self.calculate_bezier_point(points, t)
+            if prev_point:
+                self.draw_line_Bres(round(prev_point[0]), round(prev_point[1]), round(x), round(y), color, False)
+            prev_point = (x, y)
+
+        if not prev_point: return
+
+        self.draw_line_Bres(round(prev_point[0]), round(prev_point[1]), round(points[-1][0]), round(points[-1][1]), color, False)
+        self.canvas.update()
+
+    def calculate_bezier_point(self, points: list[tuple[int, int]], t: float):
+        n = len(points) - 1
+        x, y = 0, 0
+        for i, point in enumerate(points):
+            bernstein = self.bernstein(i, n, t)
+            x += point[0] * bernstein
+            y += point[1] * bernstein
+        return x, y
+
+    def bernstein(self, i: int, n: int, t: float):
+        return self.combination(n, i) * (t ** i) * ((1 - t) ** (n - i))
+
+    def combination(self, n: int, i: int):
+        result = 1
+        for j in range(1, i + 1):
+            result = result * (n - j + 1) // j
+        return result
+
+    def fill_recursive(self, x: int, y: int, fill_color: str):
+        def inner(x: int, y: int, target_color: str, fill_color: str) -> None:
+            if x < 0 or x >= CANVAS_WIDTH or y < 0 or y >= CANVAS_HEIGHT:
+                return
+
+            current = self.get_pixel(x, y)
+            if current != target_color or current == fill_color:
+                return
+
+            self.set_pixel(x, y, fill_color)
+            inner(x+1, y, target_color, fill_color)
+            inner(x-1, y, target_color, fill_color)
+            inner(x, y+1, target_color, fill_color)
+            inner(x, y-1, target_color, fill_color)
+
+        target_color = self.get_pixel(x,y)
+
+        if target_color == fill_color or not target_color:
+            return
+
+        inner(x, y, target_color, fill_color)
+        self.canvas.update()
+
+    def fill_koroyed(self, x: int, y: int, fill_color: tuple, pattern: list) -> None:
+        from PIL import Image, ImageDraw
+
+def fill_koroyed(self, x: int, y: int, fill_color: str, pattern: list) -> None:
+    target_color = self.get_pixel(x, y)
+    if target_color == fill_color:
+        return
+    
+    stack = [(x, y)]
+    pattern_height = len(pattern)
+    pattern_width = len(pattern[0]) if pattern_height > 0 else 0
+    
+    while stack:
+        px, py = stack.pop()
+        left = px
+        right = px
+        
+        while left >= 0 and self.get_pixel(left, py) == target_color:
+            left -= 1
+        left += 1
+        
+        while right < CANVAS_WIDTH and self.get_pixel(right, py) == target_color:
+            right += 1
+        right -= 1
+        
+        for i in range(left, right + 1):
+            if pattern_height > 0 and pattern_width > 0:
+                pattern_row = py % pattern_height
+                pattern_col = i % pattern_width
+                use_fill_color = pattern[pattern_row][pattern_col]
+            else:
+                use_fill_color = 1  
+            
+            if use_fill_color:
+                self.set_pixel(i, py, fill_color)
+            
+            # Check above
+            if py > 0 and self.get_pixel(i, py - 1) == target_color:
+                stack.append((i, py - 1))
+            
+            # Check below
+            if py < CANVAS_HEIGHT - 1 and self.get_pixel(i, py + 1) == target_color:
+                stack.append((i, py + 1))
+    
+    self.canvas.update()
+
+
+def fill_seed(self, x: int, y: int, fill_color: str) -> None:
+   
+    target_color = self.get_pixel(x, y)
+    
+    if target_color == fill_color:
+        return
+    
+    from collections import deque
+    stack = deque([(x, y)])
+    
+    visited = set()
+    visited.add((x, y))
+    
+    width, height = CANVAS_WIDTH, CANVAS_HEIGHT
+    
+    while stack:
+        cx, cy = stack.pop()
+        
+        self.set_pixel(cx, cy, fill_color)
+        
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = cx + dx, cy + dy
+            
+            if 0 <= nx < width and 0 <= ny < height:
+                if (nx, ny) not in visited:
+                    if self.get_pixel(nx, ny) == target_color:
+                        visited.add((nx, ny))
+                        stack.append((nx, ny))
+    
+    self.canvas.update()
+
+    def set_pixel(self, x: int, y: int, color: str) -> None:
+        if 0 <= x < CANVAS_WIDTH and 0 <= y < CANVAS_HEIGHT:
+            self.image.put(color, (x, y))
+
+    def get_pixel(self, x: int, y: int) -> Optional[str]:
+        if 0 <= x < CANVAS_WIDTH and 0 <= y < CANVAS_HEIGHT:
+            result = self.image.get(x, y)
+
+            if isinstance(result, str):
+                try:
+                    r, g, b = map(int, result.split())
+                except Exception:
+                    r, g, b = (255, 255, 255)
+            elif isinstance(result, tuple):
+                r, g, b = result
+            else:
+                r, g, b = (255, 255, 255)
+            return f'#{r:02x}{g:02x}{b:02x}'
+
+        return None
+
+    def change_bezier_points(self):
+        def change_points():
+            try:
+                points = int(entry.get())
+                if points < 2:
+                    raise ValueError
+                self.bezier_points = points
+                self.bezier_label['text'] = f'Bezier points: {points}'
+                window.destroy()
+            except ValueError:
+                label['text'] = 'Введите целое число больше 1'
+
+        window = tk.Toplevel(self.root)
+        label = tk.Label(window, text='Введите количество точек для кривой Безье:')
+        label.pack()
+        entry = tk.Entry(window)
+        entry.pack()
+        button = tk.Button(window, text='OK', command=change_points)
+        button.pack()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = Paint(root)
+    root.mainloop()
