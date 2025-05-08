@@ -6,6 +6,7 @@ from OpenGL.GLU import *
 import numpy as np
 import math
 
+
 # Функция для создания каркасного цилиндра
 def create_wireframe_cylinder(radius, height, num_segments):
     """Создает вершины и линии для каркасного цилиндра."""
